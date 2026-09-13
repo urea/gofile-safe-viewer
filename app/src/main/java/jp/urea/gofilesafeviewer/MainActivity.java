@@ -2,7 +2,6 @@ package jp.urea.gofilesafeviewer;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.http.SslError;
@@ -41,6 +40,7 @@ import java.util.regex.Pattern;
 
 public class MainActivity extends Activity {
     private static final String TAG = "GofileSafeViewer";
+    private static final int NORMAL_PADDING = 14;
     private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+", Pattern.CASE_INSENSITIVE);
     private static final int MAX_REDIRECTS = 6;
     private static final String RELAXED_TOKEN = "gofile";
@@ -50,20 +50,21 @@ public class MainActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private LinearLayout mainLayout;
+    private LinearLayout topPanel;
     private EditText urlInput;
     private TextView statusView;
     private WebView webView;
     private Button jsButton;
+    private Button maxButton;
 
     private View fullScreenView;
     private WebChromeClient.CustomViewCallback fullScreenCallback;
     private int normalSystemUiVisibility;
-    private int normalOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
 
-    // v0.5: 表示検証を優先してJSは初期ON。
-    // 外部遷移、ポップアップ、自動ダウンロードは継続遮断する。
-    // ログ表示欄は削除し、内部Logcatのみへ出力する。
+    // v0.6: WebViewのサイト側fullscreenに頼らず、アプリ側の縦向き最大表示モードを追加する。
+    // 強制的な横画面化はしない。
     private boolean limitedJavaScriptEnabled = true;
+    private boolean viewerMaximized = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -113,6 +114,9 @@ public class MainActivity extends Activity {
                 if (newProgress == 100) {
                     appendLog("PROGRESS 100%");
                     schedulePageCleanup();
+                    if (viewerMaximized) {
+                        injectPlayerMaxCss(true);
+                    }
                 }
             }
 
@@ -130,6 +134,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onShowCustomView(View view, int requestedOrientation, CustomViewCallback callback) {
+                // サイト側が横画面を要求しても、このビューアでは画面方向を強制しない。
                 showFullScreenView(view, callback);
             }
 
@@ -142,7 +147,7 @@ public class MainActivity extends Activity {
             @Override
             public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
                 appendLog("BLOCK download: " + url + " / " + mimetype + " / " + contentLength + " bytes");
-                setStatus("自動ダウンロードを遮断しました。v0.5では保存機能は入れていません。");
+                setStatus("自動ダウンロードを遮断しました。v0.6では保存機能は入れていません。");
             }
         });
     }
@@ -150,13 +155,17 @@ public class MainActivity extends Activity {
     private void buildUi() {
         mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
-        mainLayout.setPadding(14, 14, 14, 14);
+        mainLayout.setPadding(NORMAL_PADDING, NORMAL_PADDING, NORMAL_PADDING, NORMAL_PADDING);
+
+        topPanel = new LinearLayout(this);
+        topPanel.setOrientation(LinearLayout.VERTICAL);
+        mainLayout.addView(topPanel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
         title.setText("Gofile Safe Viewer");
         title.setTextSize(20);
         title.setGravity(Gravity.CENTER_VERTICAL);
-        mainLayout.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        topPanel.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         LinearLayout controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.HORIZONTAL);
@@ -175,7 +184,7 @@ public class MainActivity extends Activity {
             }
         });
         controls.addView(openButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        mainLayout.addView(controls, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        topPanel.addView(controls, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -189,11 +198,22 @@ public class MainActivity extends Activity {
             }
         });
         actions.addView(jsButton, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        mainLayout.addView(actions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        maxButton = new Button(this);
+        maxButton.setText("画面最大");
+        maxButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                enterViewerMaxMode();
+            }
+        });
+        actions.addView(maxButton, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        topPanel.addView(actions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         statusView = new TextView(this);
         statusView.setTextSize(14);
-        mainLayout.addView(statusView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        topPanel.addView(statusView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         webView = new WebView(this);
         mainLayout.addView(webView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
@@ -326,7 +346,7 @@ public class MainActivity extends Activity {
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(7000);
                 connection.setReadTimeout(7000);
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.5");
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.6");
                 int code = connection.getResponseCode();
                 if (code >= 300 && code < 400) {
                     String location = connection.getHeaderField("Location");
@@ -474,6 +494,75 @@ public class MainActivity extends Activity {
         webView.evaluateJavascript(script, null);
     }
 
+    private void enterViewerMaxMode() {
+        if (viewerMaximized) {
+            return;
+        }
+        appendLog("ENTER viewer max mode");
+        viewerMaximized = true;
+        normalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
+
+        if (topPanel != null) {
+            topPanel.setVisibility(View.GONE);
+        }
+        if (mainLayout != null) {
+            mainLayout.setPadding(0, 0, 0, 0);
+        }
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        injectPlayerMaxCss(true);
+    }
+
+    private void exitViewerMaxMode() {
+        if (!viewerMaximized) {
+            return;
+        }
+        appendLog("EXIT viewer max mode");
+        viewerMaximized = false;
+        injectPlayerMaxCss(false);
+
+        if (topPanel != null) {
+            topPanel.setVisibility(View.VISIBLE);
+        }
+        if (mainLayout != null) {
+            mainLayout.setPadding(NORMAL_PADDING, NORMAL_PADDING, NORMAL_PADDING, NORMAL_PADDING);
+        }
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().getDecorView().setSystemUiVisibility(normalSystemUiVisibility);
+        schedulePageCleanup();
+    }
+
+    private void injectPlayerMaxCss(boolean enabled) {
+        if (webView == null) {
+            return;
+        }
+        String script;
+        if (enabled) {
+            script = "(function(){"
+                    + "var id='gsv-max-style';"
+                    + "var css='html,body,#app,.app-page{margin:0!important;padding:0!important;width:100vw!important;height:100vh!important;overflow:hidden!important;background:#000!important;}'"
+                    + "+'.ad-banner,.content-list,.player-title,.video-float-ad,[class*=\\\"float-ad\\\"]{display:none!important;visibility:hidden!important;pointer-events:none!important;}'"
+                    + "+'.landing-content,.player-view{position:fixed!important;inset:0!important;margin:0!important;padding:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;background:#000!important;z-index:2147483646!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;}'"
+                    + "+'.player-frame{position:fixed!important;inset:0!important;margin:0!important;padding:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;background:#000!important;z-index:2147483647!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;}'"
+                    + "+'.player-frame video,.player-frame canvas,.player-frame img,.player-cover,video,canvas{width:100vw!important;height:100vh!important;max-width:100vw!important;max-height:100vh!important;object-fit:contain!important;background:#000!important;}'"
+                    + "+'.player-start{position:absolute!important;left:50%!important;top:50%!important;transform:translate(-50%,-50%)!important;z-index:2147483647!important;}';"
+                    + "var style=document.getElementById(id);"
+                    + "if(!style){style=document.createElement('style');style.id=id;document.documentElement.appendChild(style);}"
+                    + "style.textContent=css;"
+                    + "if(window.__gsvCleanupRun)window.__gsvCleanupRun();"
+                    + "})();";
+        } else {
+            script = "(function(){var style=document.getElementById('gsv-max-style');if(style)style.remove();if(window.__gsvCleanupRun)window.__gsvCleanupRun();})();";
+        }
+        webView.evaluateJavascript(script, null);
+    }
+
     private void showFullScreenView(View view, WebChromeClient.CustomViewCallback callback) {
         if (fullScreenView != null) {
             if (callback != null) {
@@ -481,9 +570,8 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        appendLog("SHOW fullscreen custom view");
+        appendLog("SHOW fullscreen custom view without orientation change");
         normalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
-        normalOrientation = getRequestedOrientation();
         fullScreenView = view;
         fullScreenCallback = callback;
         fullScreenView.setBackgroundColor(Color.BLACK);
@@ -503,7 +591,6 @@ public class MainActivity extends Activity {
                         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
     }
 
     private void hideFullScreenView() {
@@ -521,7 +608,6 @@ public class MainActivity extends Activity {
         }
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(normalSystemUiVisibility);
-        setRequestedOrientation(normalOrientation);
         WebChromeClient.CustomViewCallback callback = fullScreenCallback;
         fullScreenCallback = null;
         if (callback != null) {
@@ -535,6 +621,10 @@ public class MainActivity extends Activity {
             hideFullScreenView();
             return;
         }
+        if (viewerMaximized) {
+            exitViewerMaxMode();
+            return;
+        }
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
@@ -545,6 +635,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         try {
+            if (fullScreenView != null) {
+                hideFullScreenView();
+            }
+            if (viewerMaximized) {
+                exitViewerMaxMode();
+            }
             if (webView != null) {
                 webView.stopLoading();
                 webView.clearHistory();
@@ -595,6 +691,9 @@ public class MainActivity extends Activity {
         public void onPageFinished(WebView view, String url) {
             appendLog("DONE " + url);
             schedulePageCleanup();
+            if (viewerMaximized) {
+                injectPlayerMaxCss(true);
+            }
         }
 
         @Override
