@@ -15,6 +15,7 @@ import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -49,7 +50,9 @@ public class MainActivity extends Activity {
     private WebView webView;
     private Button jsButton;
 
-    private boolean limitedJavaScriptEnabled = false;
+    // v0.3: Gofile系ページはSPA/JS前提の可能性が高いため、表示検証を優先して初期ONにする。
+    // 外部遷移、ポップアップ、自動ダウンロード、許可条件外リソース遮断は継続する。
+    private boolean limitedJavaScriptEnabled = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -62,21 +65,22 @@ public class MainActivity extends Activity {
             urlInput.setText(initialUrl);
             openRequestedUrl(initialUrl);
         } else {
-            setStatus("URLを貼り付けるか、Xなどの共有から開いてください。緩和モードでは " + ALLOWED_RULE + " のみ開きます。");
+            setStatus("URLを貼り付けるか、Xなどの共有から開いてください。表示優先のため制限付きJSは初期ONです。許可条件: " + ALLOWED_RULE);
         }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
         WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(false);
+        settings.setJavaScriptEnabled(limitedJavaScriptEnabled);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setSupportMultipleWindows(false);
-        settings.setDomStorageEnabled(false);
-        settings.setDatabaseEnabled(false);
+        settings.setDomStorageEnabled(limitedJavaScriptEnabled);
+        settings.setDatabaseEnabled(limitedJavaScriptEnabled);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMediaPlaybackRequiresUserGesture(true);
+        settings.setLoadsImagesAutomatically(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             settings.setSafeBrowsingEnabled(true);
@@ -89,12 +93,26 @@ public class MainActivity extends Activity {
                 appendLog("BLOCK popup/window.open");
                 return false;
             }
+
+            @Override
+            public void onProgressChanged(WebView view, int newProgress) {
+                if (newProgress == 100) {
+                    appendLog("PROGRESS 100%");
+                }
+            }
+
+            @Override
+            public void onReceivedTitle(WebView view, String title) {
+                if (title != null && title.trim().length() > 0) {
+                    appendLog("TITLE " + title);
+                }
+            }
         });
         webView.setDownloadListener(new DownloadListener() {
             @Override
             public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
                 appendLog("BLOCK download: " + url + " / " + mimetype + " / " + contentLength + " bytes");
-                setStatus("自動ダウンロードを遮断しました。v0.2では保存機能は入れていません。");
+                setStatus("自動ダウンロードを遮断しました。v0.3では保存機能は入れていません。");
             }
         });
     }
@@ -133,7 +151,7 @@ public class MainActivity extends Activity {
         actions.setOrientation(LinearLayout.HORIZONTAL);
 
         jsButton = new Button(this);
-        jsButton.setText("制限付きJS: OFF");
+        jsButton.setText(limitedJavaScriptEnabled ? "制限付きJS: ON" : "制限付きJS: OFF");
         jsButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -175,11 +193,18 @@ public class MainActivity extends Activity {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(limitedJavaScriptEnabled);
         settings.setDomStorageEnabled(limitedJavaScriptEnabled);
+        settings.setDatabaseEnabled(limitedJavaScriptEnabled);
         jsButton.setText(limitedJavaScriptEnabled ? "制限付きJS: ON" : "制限付きJS: OFF");
         appendLog("INFO limited JavaScript = " + limitedJavaScriptEnabled);
         setStatus(limitedJavaScriptEnabled
-                ? "JavaScriptを有効化しました。ただしURL内に gofile を含まない通信、ポップアップ、自動DLは遮断します。"
+                ? "JavaScriptを有効化しました。URL内に gofile を含まない通信、ポップアップ、自動DLは遮断します。"
                 : "JavaScriptを無効化しました。");
+
+        String currentUrl = webView.getUrl();
+        if (currentUrl != null && isAllowedUrl(Uri.parse(currentUrl))) {
+            appendLog("RELOAD after JS toggle: " + currentUrl);
+            webView.reload();
+        }
     }
 
     private String urlFromIntent() {
@@ -287,7 +312,7 @@ public class MainActivity extends Activity {
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(7000);
                 connection.setReadTimeout(7000);
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.2");
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.3");
                 int code = connection.getResponseCode();
                 if (code >= 300 && code < 400) {
                     String location = connection.getHeaderField("Location");
@@ -428,6 +453,16 @@ public class MainActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             appendLog("DONE " + url);
+        }
+
+        @Override
+        public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+            if (request != null) {
+                appendLog("ERROR resource: " + request.getUrl() + " / " + error.getDescription());
+                if (request.isForMainFrame()) {
+                    setStatus("読み込みエラー: " + error.getDescription());
+                }
+            }
         }
 
         @Override
