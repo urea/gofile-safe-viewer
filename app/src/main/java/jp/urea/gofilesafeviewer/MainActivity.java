@@ -38,6 +38,8 @@ import java.util.regex.Pattern;
 public class MainActivity extends Activity {
     private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+", Pattern.CASE_INSENSITIVE);
     private static final int MAX_REDIRECTS = 6;
+    private static final String RELAXED_TOKEN = "gofile";
+    private static final String ALLOWED_RULE = "HTTPS かつ URL文字列に \"gofile\" を含むURL";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -60,7 +62,7 @@ public class MainActivity extends Activity {
             urlInput.setText(initialUrl);
             openRequestedUrl(initialUrl);
         } else {
-            setStatus("URLを貼り付けるか、Xなどの共有から開いてください。初期状態では gofile.video / gofile.io 以外を遮断します。");
+            setStatus("URLを貼り付けるか、Xなどの共有から開いてください。緩和モードでは " + ALLOWED_RULE + " のみ開きます。");
         }
     }
 
@@ -92,7 +94,7 @@ public class MainActivity extends Activity {
             @Override
             public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
                 appendLog("BLOCK download: " + url + " / " + mimetype + " / " + contentLength + " bytes");
-                setStatus("自動ダウンロードを遮断しました。v0.1では保存機能は入れていません。");
+                setStatus("自動ダウンロードを遮断しました。v0.2では保存機能は入れていません。");
             }
         });
     }
@@ -113,7 +115,7 @@ public class MainActivity extends Activity {
 
         urlInput = new EditText(this);
         urlInput.setSingleLine(true);
-        urlInput.setHint("https://gofile.video/... または共有URL");
+        urlInput.setHint("URL内に gofile を含むHTTPS URL");
         controls.addView(urlInput, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
         Button openButton = new Button(this);
@@ -176,7 +178,7 @@ public class MainActivity extends Activity {
         jsButton.setText(limitedJavaScriptEnabled ? "制限付きJS: ON" : "制限付きJS: OFF");
         appendLog("INFO limited JavaScript = " + limitedJavaScriptEnabled);
         setStatus(limitedJavaScriptEnabled
-                ? "JavaScriptを有効化しました。ただし外部ホスト通信、ポップアップ、自動DLは遮断します。"
+                ? "JavaScriptを有効化しました。ただしURL内に gofile を含まない通信、ポップアップ、自動DLは遮断します。"
                 : "JavaScriptを無効化しました。");
     }
 
@@ -206,7 +208,7 @@ public class MainActivity extends Activity {
                 first = url;
             }
             Uri uri = Uri.parse(url);
-            if (isAllowedHost(uri.getHost())) {
+            if (isAllowedUrl(uri)) {
                 return url;
             }
         }
@@ -243,7 +245,7 @@ public class MainActivity extends Activity {
         }
 
         appendLog("BLOCK input: " + extracted);
-        setStatus("許可対象外URLです。gofile.video / gofile.io のHTTPSのみ開きます: " + extracted);
+        setStatus("許可対象外URLです。" + ALLOWED_RULE + " のみ開きます: " + extracted);
     }
 
     private void resolveThenOpen(final String url) {
@@ -285,7 +287,7 @@ public class MainActivity extends Activity {
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(7000);
                 connection.setReadTimeout(7000);
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.1");
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.2");
                 int code = connection.getResponseCode();
                 if (code >= 300 && code < 400) {
                     String location = connection.getHeaderField("Location");
@@ -299,7 +301,7 @@ public class MainActivity extends Activity {
                         return ResolveResult.error("non-HTTPS redirect blocked: " + current);
                     }
                     String host = nextUri.getHost();
-                    if (isAllowedHost(host) || isSupportedRedirectResolverHost(host)) {
+                    if (isAllowedUrl(nextUri) || isSupportedRedirectResolverHost(host)) {
                         continue;
                     }
                     return ResolveResult.ok(current);
@@ -318,7 +320,7 @@ public class MainActivity extends Activity {
 
     private void loadSafe(String url) {
         appendLog("LOAD " + url);
-        setStatus("読み込み中: " + url + " / 許可ホスト: gofile.video, gofile.io / JS: " + (limitedJavaScriptEnabled ? "ON" : "OFF"));
+        setStatus("読み込み中: " + url + " / 許可条件: " + ALLOWED_RULE + " / JS: " + (limitedJavaScriptEnabled ? "ON" : "OFF"));
         webView.loadUrl(url);
     }
 
@@ -330,18 +332,18 @@ public class MainActivity extends Activity {
         if (!"https".equalsIgnoreCase(scheme)) {
             return false;
         }
-        return isAllowedHost(uri.getHost());
+        return containsRelaxedToken(uri.toString());
     }
 
     private boolean isAllowedHost(String host) {
-        if (host == null) {
+        return containsRelaxedToken(host);
+    }
+
+    private boolean containsRelaxedToken(String value) {
+        if (value == null) {
             return false;
         }
-        String h = host.toLowerCase(Locale.ROOT);
-        return h.equals("gofile.video")
-                || h.endsWith(".gofile.video")
-                || h.equals("gofile.io")
-                || h.endsWith(".gofile.io");
+        return value.toLowerCase(Locale.ROOT).contains(RELAXED_TOKEN);
     }
 
     private boolean isSupportedRedirectResolverHost(String host) {
