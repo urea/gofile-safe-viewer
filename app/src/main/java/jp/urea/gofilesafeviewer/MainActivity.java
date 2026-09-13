@@ -2,15 +2,19 @@ package jp.urea.gofilesafeviewer;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.pm.ActivityInfo;
+import android.graphics.Color;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.SslErrorHandler;
@@ -25,7 +29,6 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.ByteArrayInputStream;
@@ -37,6 +40,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MainActivity extends Activity {
+    private static final String TAG = "GofileSafeViewer";
     private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+", Pattern.CASE_INSENSITIVE);
     private static final int MAX_REDIRECTS = 6;
     private static final String RELAXED_TOKEN = "gofile";
@@ -45,15 +49,20 @@ public class MainActivity extends Activity {
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    private LinearLayout mainLayout;
     private EditText urlInput;
     private TextView statusView;
-    private TextView logView;
     private WebView webView;
     private Button jsButton;
 
-    // v0.4: 表示検証を優先してJSは初期ON。
+    private View fullScreenView;
+    private WebChromeClient.CustomViewCallback fullScreenCallback;
+    private int normalSystemUiVisibility;
+    private int normalOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+
+    // v0.5: 表示検証を優先してJSは初期ON。
     // 外部遷移、ポップアップ、自動ダウンロードは継続遮断する。
-    // リソースは gofile 含有URLに加えて、HTMLで確認したサムネ/動画CDNを一時許可する。
+    // ログ表示欄は削除し、内部Logcatのみへ出力する。
     private boolean limitedJavaScriptEnabled = true;
 
     @Override
@@ -67,7 +76,7 @@ public class MainActivity extends Activity {
             urlInput.setText(initialUrl);
             openRequestedUrl(initialUrl);
         } else {
-            setStatus("URLを貼り付けるか、Xなどの共有から開いてください。表示優先のため制限付きJSは初期ONです。許可条件: " + ALLOWED_RULE + " / " + RESOURCE_RULE);
+            setStatus("URLを貼り付けるか、Xなどの共有から開いてください。制限付きJSは初期ONです。許可条件: " + ALLOWED_RULE + " / " + RESOURCE_RULE);
         }
     }
 
@@ -83,11 +92,14 @@ public class MainActivity extends Activity {
         settings.setAllowContentAccess(false);
         settings.setMediaPlaybackRequiresUserGesture(true);
         settings.setLoadsImagesAutomatically(true);
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             settings.setSafeBrowsingEnabled(true);
         }
 
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         webView.setWebViewClient(new SafeWebViewClient());
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -100,6 +112,7 @@ public class MainActivity extends Activity {
             public void onProgressChanged(WebView view, int newProgress) {
                 if (newProgress == 100) {
                     appendLog("PROGRESS 100%");
+                    schedulePageCleanup();
                 }
             }
 
@@ -109,26 +122,41 @@ public class MainActivity extends Activity {
                     appendLog("TITLE " + title);
                 }
             }
+
+            @Override
+            public void onShowCustomView(View view, CustomViewCallback callback) {
+                showFullScreenView(view, callback);
+            }
+
+            @Override
+            public void onShowCustomView(View view, int requestedOrientation, CustomViewCallback callback) {
+                showFullScreenView(view, callback);
+            }
+
+            @Override
+            public void onHideCustomView() {
+                hideFullScreenView();
+            }
         });
         webView.setDownloadListener(new DownloadListener() {
             @Override
             public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
                 appendLog("BLOCK download: " + url + " / " + mimetype + " / " + contentLength + " bytes");
-                setStatus("自動ダウンロードを遮断しました。v0.4では保存機能は入れていません。");
+                setStatus("自動ダウンロードを遮断しました。v0.5では保存機能は入れていません。");
             }
         });
     }
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(14, 14, 14, 14);
+        mainLayout = new LinearLayout(this);
+        mainLayout.setOrientation(LinearLayout.VERTICAL);
+        mainLayout.setPadding(14, 14, 14, 14);
 
         TextView title = new TextView(this);
         title.setText("Gofile Safe Viewer");
         title.setTextSize(20);
         title.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        mainLayout.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         LinearLayout controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.HORIZONTAL);
@@ -147,7 +175,7 @@ public class MainActivity extends Activity {
             }
         });
         controls.addView(openButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        root.addView(controls, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        mainLayout.addView(controls, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -161,32 +189,16 @@ public class MainActivity extends Activity {
             }
         });
         actions.addView(jsButton, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-
-        Button clearButton = new Button(this);
-        clearButton.setText("ログ消去");
-        clearButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                logView.setText("");
-            }
-        });
-        actions.addView(clearButton, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        root.addView(actions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        mainLayout.addView(actions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         statusView = new TextView(this);
         statusView.setTextSize(14);
-        root.addView(statusView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        logView = new TextView(this);
-        logView.setTextSize(12);
-        ScrollView logScroll = new ScrollView(this);
-        logScroll.addView(logView);
-        root.addView(logScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 220));
+        mainLayout.addView(statusView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         webView = new WebView(this);
-        root.addView(webView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        mainLayout.addView(webView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        setContentView(root);
+        setContentView(mainLayout);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -314,7 +326,7 @@ public class MainActivity extends Activity {
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(7000);
                 connection.setReadTimeout(7000);
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.4");
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.5");
                 int code = connection.getResponseCode();
                 if (code >= 300 && code < 400) {
                     String location = connection.getHeaderField("Location");
@@ -367,6 +379,12 @@ public class MainActivity extends Activity {
             return false;
         }
         String scheme = uri.getScheme();
+        if ("data".equalsIgnoreCase(scheme)) {
+            return true;
+        }
+        if ("blob".equalsIgnoreCase(scheme)) {
+            return containsRelaxedToken(uri.toString());
+        }
         if (!"https".equalsIgnoreCase(scheme)) {
             return false;
         }
@@ -409,17 +427,114 @@ public class MainActivity extends Activity {
     }
 
     private void appendLog(final String line) {
-        mainHandler.post(new Runnable() {
+        Log.d(TAG, line);
+    }
+
+    private void schedulePageCleanup() {
+        injectPageCleanup();
+        mainHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                String current = logView.getText().toString();
-                logView.setText(current + line + "\n");
+                injectPageCleanup();
             }
-        });
+        }, 300);
+        mainHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                injectPageCleanup();
+            }
+        }, 1200);
+        mainHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                injectPageCleanup();
+            }
+        }, 3000);
+    }
+
+    private void injectPageCleanup() {
+        if (webView == null) {
+            return;
+        }
+        String script = "(function(){"
+                + "if(window.__gsvCleanupInstalled){if(window.__gsvCleanupRun)window.__gsvCleanupRun();return;}"
+                + "window.__gsvCleanupInstalled=true;"
+                + "var css='.video-float-ad,a[href*=\\\"kinv.cc\\\"],[class*=\\\"float-ad\\\"],[class*=\\\"Pulse\\\"],[class*=\\\"pulse\\\"],[id*=\\\"Pulse\\\"],[id*=\\\"pulse\\\"]{display:none!important;visibility:hidden!important;pointer-events:none!important;}';"
+                + "var style=document.getElementById('gsv-cleanup-style');"
+                + "if(!style){style=document.createElement('style');style.id='gsv-cleanup-style';style.textContent=css;document.documentElement.appendChild(style);}"
+                + "function clean(){"
+                + "var selector='.video-float-ad,a[href*=\\\"kinv.cc\\\"],[class*=\\\"float-ad\\\"],a[href*=\\\"pulse\\\"],a[href*=\\\"Pulse\\\"],[class*=\\\"pulse\\\"],[class*=\\\"Pulse\\\"],[id*=\\\"pulse\\\"],[id*=\\\"Pulse\\\"]';"
+                + "document.querySelectorAll(selector).forEach(function(el){el.remove();});"
+                + "document.querySelectorAll('a,button').forEach(function(el){var t=(el.textContent||'').trim();if(t.indexOf('PulsePlayer')>=0||t.indexOf('Pulse Player')>=0||t.indexOf('Kinv')>=0){el.remove();}});"
+                + "}"
+                + "window.__gsvCleanupRun=clean;"
+                + "clean();"
+                + "try{new MutationObserver(clean).observe(document.documentElement,{childList:true,subtree:true});}catch(e){}"
+                + "})();";
+        webView.evaluateJavascript(script, null);
+    }
+
+    private void showFullScreenView(View view, WebChromeClient.CustomViewCallback callback) {
+        if (fullScreenView != null) {
+            if (callback != null) {
+                callback.onCustomViewHidden();
+            }
+            return;
+        }
+        appendLog("SHOW fullscreen custom view");
+        normalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
+        normalOrientation = getRequestedOrientation();
+        fullScreenView = view;
+        fullScreenCallback = callback;
+        fullScreenView.setBackgroundColor(Color.BLACK);
+
+        if (mainLayout != null) {
+            mainLayout.setVisibility(View.GONE);
+        }
+        ViewGroup decor = (ViewGroup) getWindow().getDecorView();
+        decor.addView(fullScreenView, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+    }
+
+    private void hideFullScreenView() {
+        if (fullScreenView == null) {
+            return;
+        }
+        appendLog("HIDE fullscreen custom view");
+        ViewGroup parent = (ViewGroup) fullScreenView.getParent();
+        if (parent != null) {
+            parent.removeView(fullScreenView);
+        }
+        fullScreenView = null;
+        if (mainLayout != null) {
+            mainLayout.setVisibility(View.VISIBLE);
+        }
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().getDecorView().setSystemUiVisibility(normalSystemUiVisibility);
+        setRequestedOrientation(normalOrientation);
+        WebChromeClient.CustomViewCallback callback = fullScreenCallback;
+        fullScreenCallback = null;
+        if (callback != null) {
+            callback.onCustomViewHidden();
+        }
     }
 
     @Override
     public void onBackPressed() {
+        if (fullScreenView != null) {
+            hideFullScreenView();
+            return;
+        }
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
@@ -430,9 +545,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         try {
-            webView.stopLoading();
-            webView.clearHistory();
-            webView.clearCache(true);
+            if (webView != null) {
+                webView.stopLoading();
+                webView.clearHistory();
+                webView.clearCache(true);
+            }
             WebStorage.getInstance().deleteAllData();
             CookieManager.getInstance().removeAllCookies(null);
         } catch (Exception ignored) {
@@ -477,6 +594,7 @@ public class MainActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             appendLog("DONE " + url);
+            schedulePageCleanup();
         }
 
         @Override
