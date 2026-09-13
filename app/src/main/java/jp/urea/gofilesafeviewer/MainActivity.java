@@ -41,6 +41,7 @@ public class MainActivity extends Activity {
     private static final int MAX_REDIRECTS = 6;
     private static final String RELAXED_TOKEN = "gofile";
     private static final String ALLOWED_RULE = "HTTPS かつ URL文字列に \"gofile\" を含むURL";
+    private static final String RESOURCE_RULE = "追加リソース許可: *.fun800.click（サムネ/動画検証用）";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -50,8 +51,9 @@ public class MainActivity extends Activity {
     private WebView webView;
     private Button jsButton;
 
-    // v0.3: Gofile系ページはSPA/JS前提の可能性が高いため、表示検証を優先して初期ONにする。
-    // 外部遷移、ポップアップ、自動ダウンロード、許可条件外リソース遮断は継続する。
+    // v0.4: 表示検証を優先してJSは初期ON。
+    // 外部遷移、ポップアップ、自動ダウンロードは継続遮断する。
+    // リソースは gofile 含有URLに加えて、HTMLで確認したサムネ/動画CDNを一時許可する。
     private boolean limitedJavaScriptEnabled = true;
 
     @Override
@@ -65,7 +67,7 @@ public class MainActivity extends Activity {
             urlInput.setText(initialUrl);
             openRequestedUrl(initialUrl);
         } else {
-            setStatus("URLを貼り付けるか、Xなどの共有から開いてください。表示優先のため制限付きJSは初期ONです。許可条件: " + ALLOWED_RULE);
+            setStatus("URLを貼り付けるか、Xなどの共有から開いてください。表示優先のため制限付きJSは初期ONです。許可条件: " + ALLOWED_RULE + " / " + RESOURCE_RULE);
         }
     }
 
@@ -112,7 +114,7 @@ public class MainActivity extends Activity {
             @Override
             public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
                 appendLog("BLOCK download: " + url + " / " + mimetype + " / " + contentLength + " bytes");
-                setStatus("自動ダウンロードを遮断しました。v0.3では保存機能は入れていません。");
+                setStatus("自動ダウンロードを遮断しました。v0.4では保存機能は入れていません。");
             }
         });
     }
@@ -197,7 +199,7 @@ public class MainActivity extends Activity {
         jsButton.setText(limitedJavaScriptEnabled ? "制限付きJS: ON" : "制限付きJS: OFF");
         appendLog("INFO limited JavaScript = " + limitedJavaScriptEnabled);
         setStatus(limitedJavaScriptEnabled
-                ? "JavaScriptを有効化しました。URL内に gofile を含まない通信、ポップアップ、自動DLは遮断します。"
+                ? "JavaScriptを有効化しました。許可条件外通信、ポップアップ、自動DLは遮断します。"
                 : "JavaScriptを無効化しました。");
 
         String currentUrl = webView.getUrl();
@@ -312,7 +314,7 @@ public class MainActivity extends Activity {
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(7000);
                 connection.setReadTimeout(7000);
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.3");
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.4");
                 int code = connection.getResponseCode();
                 if (code >= 300 && code < 400) {
                     String location = connection.getHeaderField("Location");
@@ -345,7 +347,7 @@ public class MainActivity extends Activity {
 
     private void loadSafe(String url) {
         appendLog("LOAD " + url);
-        setStatus("読み込み中: " + url + " / 許可条件: " + ALLOWED_RULE + " / JS: " + (limitedJavaScriptEnabled ? "ON" : "OFF"));
+        setStatus("読み込み中: " + url + " / 許可条件: " + ALLOWED_RULE + " / " + RESOURCE_RULE + " / JS: " + (limitedJavaScriptEnabled ? "ON" : "OFF"));
         webView.loadUrl(url);
     }
 
@@ -360,8 +362,27 @@ public class MainActivity extends Activity {
         return containsRelaxedToken(uri.toString());
     }
 
-    private boolean isAllowedHost(String host) {
-        return containsRelaxedToken(host);
+    private boolean isAllowedResourceUrl(Uri uri) {
+        if (uri == null) {
+            return false;
+        }
+        String scheme = uri.getScheme();
+        if (!"https".equalsIgnoreCase(scheme)) {
+            return false;
+        }
+        if (containsRelaxedToken(uri.toString())) {
+            return true;
+        }
+        return isTemporaryMediaResourceHost(uri.getHost());
+    }
+
+    private boolean isTemporaryMediaResourceHost(String host) {
+        if (host == null) {
+            return false;
+        }
+        String h = host.toLowerCase(Locale.ROOT);
+        return h.equals("fun800.click")
+                || h.endsWith(".fun800.click");
     }
 
     private boolean containsRelaxedToken(String value) {
@@ -443,7 +464,10 @@ public class MainActivity extends Activity {
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
             Uri uri = request.getUrl();
-            if (isAllowedUrl(uri)) {
+            if (isAllowedResourceUrl(uri)) {
+                if (uri != null && isTemporaryMediaResourceHost(uri.getHost())) {
+                    appendLog("ALLOW media/thumb: " + uri);
+                }
                 return null;
             }
             appendLog("BLOCK resource: " + uri);
