@@ -33,6 +33,8 @@ import android.widget.TextView;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -43,20 +45,16 @@ public class SafeActivity extends Activity {
     private static final int PADDING = 14;
     private static final int MAX_REDIRECTS = 6;
     private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+", Pattern.CASE_INSENSITIVE);
-    private static final String ALLOWED_RULE = "HTTPS かつ URL文字列に gofile または twimg を含むURL";
+    private static final String ALLOWED_RULE = "HTTPS かつ gofile/twimg を含むURL、または x.com / *.x.com";
     private static final String RESOURCE_RULE = "追加リソース許可: *.fun800.click";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private LinearLayout root;
-    private LinearLayout topPanel;
     private EditText urlInput;
     private TextView statusView;
     private WebView webView;
-    private Button jsButton;
 
-    private boolean limitedJavaScriptEnabled = true;
-    private boolean viewerMaximized = false;
     private int normalSystemUiVisibility;
     private View customFullScreenView;
     private WebChromeClient.CustomViewCallback customFullScreenCallback;
@@ -79,11 +77,11 @@ public class SafeActivity extends Activity {
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
         WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(limitedJavaScriptEnabled);
+        settings.setJavaScriptEnabled(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setSupportMultipleWindows(false);
-        settings.setDomStorageEnabled(limitedJavaScriptEnabled);
-        settings.setDatabaseEnabled(limitedJavaScriptEnabled);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMediaPlaybackRequiresUserGesture(true);
@@ -108,9 +106,6 @@ public class SafeActivity extends Activity {
             public void onProgressChanged(WebView view, int progress) {
                 if (progress == 100) {
                     cleanupPage();
-                    if (viewerMaximized) {
-                        setPlayerMaxCss(true);
-                    }
                 }
             }
 
@@ -150,7 +145,7 @@ public class SafeActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(PADDING, PADDING, PADDING, PADDING);
 
-        topPanel = new LinearLayout(this);
+        LinearLayout topPanel = new LinearLayout(this);
         topPanel.setOrientation(LinearLayout.VERTICAL);
         root.addView(topPanel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -164,7 +159,7 @@ public class SafeActivity extends Activity {
         controls.setOrientation(LinearLayout.HORIZONTAL);
         urlInput = new EditText(this);
         urlInput.setSingleLine(true);
-        urlInput.setHint("gofile / twimg を含むHTTPS URL");
+        urlInput.setHint("gofile / twimg / x.com のHTTPS URL");
         controls.addView(urlInput, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
         Button openButton = new Button(this);
@@ -178,30 +173,6 @@ public class SafeActivity extends Activity {
         controls.addView(openButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         topPanel.addView(controls, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-
-        jsButton = new Button(this);
-        jsButton.setText("制限付きJS: ON");
-        jsButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                toggleJavaScript();
-            }
-        });
-        actions.addView(jsButton, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-
-        Button maxButton = new Button(this);
-        maxButton.setText("画面最大");
-        maxButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                enterMaxMode();
-            }
-        });
-        actions.addView(maxButton, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        topPanel.addView(actions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
         statusView = new TextView(this);
         statusView.setTextSize(14);
         topPanel.addView(statusView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -210,20 +181,6 @@ public class SafeActivity extends Activity {
         root.addView(webView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
         setContentView(root);
-    }
-
-    @SuppressLint("SetJavaScriptEnabled")
-    private void toggleJavaScript() {
-        limitedJavaScriptEnabled = !limitedJavaScriptEnabled;
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(limitedJavaScriptEnabled);
-        settings.setDomStorageEnabled(limitedJavaScriptEnabled);
-        settings.setDatabaseEnabled(limitedJavaScriptEnabled);
-        jsButton.setText(limitedJavaScriptEnabled ? "制限付きJS: ON" : "制限付きJS: OFF");
-        String current = webView.getUrl();
-        if (current != null && isAllowedUrl(Uri.parse(current))) {
-            webView.reload();
-        }
     }
 
     private String urlFromIntent() {
@@ -328,7 +285,7 @@ public class SafeActivity extends Activity {
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(7000);
                 connection.setReadTimeout(7000);
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.7");
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.8");
                 int code = connection.getResponseCode();
                 if (code >= 300 && code < 400) {
                     String location = connection.getHeaderField("Location");
@@ -358,9 +315,6 @@ public class SafeActivity extends Activity {
     }
 
     private void loadSafe(String url) {
-        if (viewerMaximized) {
-            exitMaxMode();
-        }
         setStatus("読み込み中: " + url + " / 許可条件: " + ALLOWED_RULE + " / " + RESOURCE_RULE);
         log("LOAD " + url);
         webView.loadUrl(url);
@@ -370,7 +324,7 @@ public class SafeActivity extends Activity {
         if (uri == null || !"https".equalsIgnoreCase(uri.getScheme())) {
             return false;
         }
-        return containsAllowedToken(uri.toString());
+        return containsAllowedToken(uri.toString()) || isAllowedXUrl(uri.toString());
     }
 
     private boolean isAllowedResourceUrl(Uri uri) {
@@ -382,12 +336,12 @@ public class SafeActivity extends Activity {
             return true;
         }
         if ("blob".equalsIgnoreCase(scheme)) {
-            return containsAllowedToken(uri.toString());
+            return containsAllowedToken(uri.toString()) || isAllowedXUrl(uri.getSchemeSpecificPart());
         }
         if (!"https".equalsIgnoreCase(scheme)) {
             return false;
         }
-        return containsAllowedToken(uri.toString()) || isTemporaryMediaHost(uri.getHost());
+        return isAllowedUrl(uri) || isTemporaryMediaHost(uri.getHost());
     }
 
     private boolean containsAllowedToken(String value) {
@@ -396,6 +350,27 @@ public class SafeActivity extends Activity {
         }
         String v = value.toLowerCase(Locale.ROOT);
         return v.contains("gofile") || v.contains("twimg");
+    }
+
+    private boolean isAllowedXUrl(String value) {
+        if (value == null) {
+            return false;
+        }
+        try {
+            // Parse the authority strictly; text in a path/query must not grant access.
+            URI uri = new URI(value);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getRawUserInfo() != null) {
+                return false;
+            }
+            String host = uri.getHost();
+            if (host == null) {
+                return false;
+            }
+            String h = host.toLowerCase(Locale.ROOT);
+            return h.equals("x.com") || h.endsWith(".x.com");
+        } catch (URISyntaxException ex) {
+            return false;
+        }
     }
 
     private boolean isTemporaryMediaHost(String host) {
@@ -431,60 +406,6 @@ public class SafeActivity extends Activity {
                 + "clean();"
                 + "if(!window.__gsvCleanupObserver){try{window.__gsvCleanupObserver=new MutationObserver(clean);window.__gsvCleanupObserver.observe(document.documentElement,{childList:true,subtree:true});}catch(e){}}"
                 + "})();";
-        webView.evaluateJavascript(script, null);
-    }
-
-    private void enterMaxMode() {
-        if (viewerMaximized) {
-            return;
-        }
-        viewerMaximized = true;
-        normalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
-        topPanel.setVisibility(View.GONE);
-        root.setPadding(0, 0, 0, 0);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_FULLSCREEN |
-                        View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-                        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
-                        View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
-                        View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
-                        View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
-        setPlayerMaxCss(true);
-        runLater(300, new Runnable() { @Override public void run() { setPlayerMaxCss(true); } });
-        runLater(1200, new Runnable() { @Override public void run() { setPlayerMaxCss(true); } });
-    }
-
-    private void exitMaxMode() {
-        if (!viewerMaximized) {
-            return;
-        }
-        viewerMaximized = false;
-        hideCustomFullScreen();
-        topPanel.setVisibility(View.VISIBLE);
-        root.setPadding(PADDING, PADDING, PADDING, PADDING);
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        getWindow().getDecorView().setSystemUiVisibility(normalSystemUiVisibility);
-        setPlayerMaxCss(false);
-    }
-
-    private void setPlayerMaxCss(boolean enable) {
-        String script;
-        if (enable) {
-            script = "(function(){"
-                    + "var css='html,body,#app,.app-page,.landing-content,.player-view{margin:0!important;padding:0!important;width:100vw!important;min-height:100vh!important;background:#000!important;overflow:hidden!important;}'"
-                    + "+'.ad-banner,.content-list,.player-title,.load-more,.list-sentinel{display:none!important;visibility:hidden!important;}'"
-                    + "+'.player-frame{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;background:#000!important;z-index:2147483000!important;}'"
-                    + "+'.player-frame video,.player-frame canvas,.player-cover{position:absolute!important;left:0!important;top:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;object-fit:contain!important;background:#000!important;}'"
-                    + "+'.player-start{position:fixed!important;left:50%!important;top:50%!important;transform:translate(-50%,-50%)!important;z-index:2147483001!important;}'"
-                    + "+'.video-float-ad,[class*=\\\"float-ad\\\"],[id*=\\\"float-ad\\\"]{display:none!important;visibility:hidden!important;pointer-events:none!important;}';"
-                    + "var s=document.getElementById('gsv-player-max-style');"
-                    + "if(!s){s=document.createElement('style');s.id='gsv-player-max-style';document.documentElement.appendChild(s);}"
-                    + "s.textContent=css;try{window.scrollTo(0,0);}catch(e){}"
-                    + "})();";
-        } else {
-            script = "(function(){var s=document.getElementById('gsv-player-max-style');if(s){s.remove();}})();";
-        }
         webView.evaluateJavascript(script, null);
     }
 
@@ -553,10 +474,6 @@ public class SafeActivity extends Activity {
             hideCustomFullScreen();
             return;
         }
-        if (viewerMaximized) {
-            exitMaxMode();
-            return;
-        }
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
             return;
@@ -613,9 +530,6 @@ public class SafeActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             cleanupPage();
-            if (viewerMaximized) {
-                setPlayerMaxCss(true);
-            }
         }
 
         @Override
