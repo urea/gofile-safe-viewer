@@ -75,9 +75,10 @@ final class UiChrome {
                 int light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
                         | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
                 controller.setSystemBarsAppearance(light, light);
+                // Behavior only applies while bars are hidden; show() below restores them.
                 controller.setSystemBarsBehavior(Build.VERSION.SDK_INT >= 31
                         ? WindowInsetsController.BEHAVIOR_DEFAULT
-                        : WindowInsetsController.BEHAVIOR_SHOW_BARS_BY_SWIPE);
+                        : WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
                 controller.show(WindowInsets.Type.systemBars());
             }
         } else {
