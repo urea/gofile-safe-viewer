@@ -87,8 +87,8 @@ public final class HomeActivity extends Activity {
         }); page.addView(open, new LinearLayout.LayoutParams(-1, -2));
 
         section(page, "許可リストの概要");
-        page.addView(text("HTTPSのみ。x.comとそのサブドメイン、t.co、URLにgofileまたはtwimgを含むものを許可しています。fun800.click系は画像・動画等のリソースだけを追加許可しています。", 14));
-        page.addView(text("許可対象外への遷移、ポップアップ、自動ダウンロード、証明書エラーを遮断します。Gofile／twimgの判定は現在、検証用の文字列一致です。", 13));
+        page.addView(text("HTTPSのみ。x.comとそのサブドメイン、t.co、URLにgofile・twimg・mvfileを含むものを許可しています。fun800.click系は画像・動画等のリソースだけを追加許可しています。", 14));
+        page.addView(text("許可対象外への遷移、ポップアップ、自動ダウンロード、証明書エラーを遮断します。Gofile／twimg／mvfileの判定は現在、検証用の文字列一致です。", 13));
 
         section(page, "ログイン情報・プライバシー");
         page.addView(text("本アプリはログイン情報や閲覧内容を、開発者のサーバーやアクセス解析サービスへ送信しません。ログイン・閲覧に必要な通信はXなどの利用先へ、更新確認・APK取得の通信はGitHubへ行います。", 14));

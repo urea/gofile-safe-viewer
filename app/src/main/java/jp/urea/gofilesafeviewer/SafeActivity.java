@@ -48,7 +48,7 @@ import java.util.regex.Pattern;
 public class SafeActivity extends Activity {
     private static final int MAX_REDIRECTS = 6;
     private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+", Pattern.CASE_INSENSITIVE);
-    private static final String ALLOWED_RULE = "HTTPSのgofile/twimgを含むURL、x.com / *.x.com / t.co";
+    private static final String ALLOWED_RULE = "HTTPSのgofile/twimg/mvfileを含むURL、x.com / *.x.com / t.co";
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private LinearLayout root;
     private EditText urlInput;
@@ -306,7 +306,7 @@ public class SafeActivity extends Activity {
     }
     private boolean containsAllowedToken(String value) {
         if (value == null) return false;
-        String lower = value.toLowerCase(Locale.ROOT); return lower.contains("gofile") || lower.contains("twimg");
+        String lower = value.toLowerCase(Locale.ROOT); return lower.contains("gofile") || lower.contains("twimg") || lower.contains("mvfile");
     }
     private boolean isAllowedNamedHostUrl(String value) {
         if (value == null) return false;
