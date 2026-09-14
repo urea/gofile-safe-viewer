@@ -1,0 +1,40 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'jp.urea.gofilesafeviewer'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'jp.urea.gofilesafeviewer'
+        minSdk 23
+        targetSdk 35
+        versionCode 11
+        versionName '0.11.0'
+    }
+    buildFeatures { buildConfig true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    signingConfigs {
+        release {
+            if (System.getenv('GSV_KEYSTORE_PATH')) {
+                storeFile file(System.getenv('GSV_KEYSTORE_PATH'))
+                storePassword System.getenv('GSV_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('GSV_KEY_ALIAS')
+                keyPassword System.getenv('GSV_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug { applicationIdSuffix '.debug'; versionNameSuffix '-debug' }
+        release {
+            minifyEnabled false
+            if (System.getenv('GSV_KEYSTORE_PATH')) signingConfig signingConfigs.release
+        }
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}

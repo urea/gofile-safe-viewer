@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <application android:allowBackup="false"
+        android:icon="@drawable/gofile_safe_icon" android:roundIcon="@drawable/gofile_safe_icon"
+        android:label="@string/app_name" android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true" android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="false">
+        <activity android:name=".HomeActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".SafeActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="gofile.video" />
+                <data android:scheme="https" android:host="www.gofile.video" />
+                <data android:scheme="https" android:host="gofile.io" />
+                <data android:scheme="https" android:host="www.gofile.io" />
+                <data android:scheme="https" android:host="gofile.guru" />
+                <data android:scheme="https" android:host="www.gofile.guru" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="t.co" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="x.com" />
+                <data android:scheme="https" android:host="*.x.com" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="pbs.twimg.com" />
+                <data android:scheme="https" android:host="video.twimg.com" />
+                <data android:scheme="https" android:host="abs.twimg.com" />
+                <data android:scheme="https" android:host="ton.twimg.com" />
+                <data android:scheme="https" android:host="*.twimg.com" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+        <provider android:name=".UpdateApkProvider" android:authorities="${applicationId}.updates"
+            android:exported="false" android:grantUriPermissions="true" />
+    </application>
+</manifest>
