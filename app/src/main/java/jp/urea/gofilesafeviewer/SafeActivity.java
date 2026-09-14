@@ -45,7 +45,7 @@ public class SafeActivity extends Activity {
     private static final int PADDING = 14;
     private static final int MAX_REDIRECTS = 6;
     private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+", Pattern.CASE_INSENSITIVE);
-    private static final String ALLOWED_RULE = "HTTPS かつ gofile/twimg を含むURL、または x.com / *.x.com";
+    private static final String ALLOWED_RULE = "HTTPS かつ gofile/twimg を含むURL、または x.com / *.x.com / t.co";
     private static final String RESOURCE_RULE = "追加リソース許可: *.fun800.click";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -159,7 +159,7 @@ public class SafeActivity extends Activity {
         controls.setOrientation(LinearLayout.HORIZONTAL);
         urlInput = new EditText(this);
         urlInput.setSingleLine(true);
-        urlInput.setHint("gofile / twimg / x.com のHTTPS URL");
+        urlInput.setHint("gofile / twimg / x.com / t.co のHTTPS URL");
         controls.addView(urlInput, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
         Button openButton = new Button(this);
@@ -234,14 +234,14 @@ public class SafeActivity extends Activity {
         }
 
         Uri uri = Uri.parse(url);
-        if (isAllowedUrl(uri)) {
-            loadSafe(url);
-            return;
-        }
-
         if ("https".equalsIgnoreCase(uri.getScheme()) && isResolverHost(uri.getHost())) {
             setStatus("短縮URLを展開しています: " + url);
             resolveThenOpen(url);
+            return;
+        }
+
+        if (isAllowedUrl(uri)) {
+            loadSafe(url);
             return;
         }
 
@@ -285,7 +285,7 @@ public class SafeActivity extends Activity {
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(7000);
                 connection.setReadTimeout(7000);
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.8");
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 GofileSafeViewer/0.9");
                 int code = connection.getResponseCode();
                 if (code >= 300 && code < 400) {
                     String location = connection.getHeaderField("Location");
@@ -324,7 +324,7 @@ public class SafeActivity extends Activity {
         if (uri == null || !"https".equalsIgnoreCase(uri.getScheme())) {
             return false;
         }
-        return containsAllowedToken(uri.toString()) || isAllowedXUrl(uri.toString());
+        return containsAllowedToken(uri.toString()) || isAllowedNamedHostUrl(uri.toString());
     }
 
     private boolean isAllowedResourceUrl(Uri uri) {
@@ -336,7 +336,7 @@ public class SafeActivity extends Activity {
             return true;
         }
         if ("blob".equalsIgnoreCase(scheme)) {
-            return containsAllowedToken(uri.toString()) || isAllowedXUrl(uri.getSchemeSpecificPart());
+            return containsAllowedToken(uri.toString()) || isAllowedNamedHostUrl(uri.getSchemeSpecificPart());
         }
         if (!"https".equalsIgnoreCase(scheme)) {
             return false;
@@ -352,7 +352,7 @@ public class SafeActivity extends Activity {
         return v.contains("gofile") || v.contains("twimg");
     }
 
-    private boolean isAllowedXUrl(String value) {
+    private boolean isAllowedNamedHostUrl(String value) {
         if (value == null) {
             return false;
         }
@@ -367,7 +367,7 @@ public class SafeActivity extends Activity {
                 return false;
             }
             String h = host.toLowerCase(Locale.ROOT);
-            return h.equals("x.com") || h.endsWith(".x.com");
+            return h.equals("x.com") || h.endsWith(".x.com") || h.equals("t.co");
         } catch (URISyntaxException ex) {
             return false;
         }
