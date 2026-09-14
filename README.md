@@ -1,91 +1,54 @@
 # Gofile Safe Viewer
 
-Android向けの実験用セーフビューアです。
+Android向けの実験用セーフビューアです。Gofile系リンクやXのページを、許可対象外への遷移などを制限するWebViewで閲覧します。サイトやファイル自体の安全性を保証するアプリではありません。
 
-## 目的
+## v0.10の変更
 
-Gofile系リンクやXのページを通常ブラウザで直接開かず、許可リスト制のWebViewで確認するための実験アプリです。
+- 起動先をネイティブのホーム画面に変更。アプリ説明、許可リスト概要、情報の扱いを表示
+- Xを開く／Xにログイン／URLを貼り付けて開く導線を追加。外部共有は引き続きビューアへ直接渡す
+- ログイン状態のCookie・WebStorageを端末内で保持。ホームから明示的に削除可能
+- アクティブなビューアのURL・タイトルのLogcat出力を廃止。認証情報を収集するJavaScript bridgeや解析SDKは導入しない
+- 手動の更新確認、更新内容の確認、APK取得と検証、Androidの承認付きインストールに対応
+- GitHub Releasesへの固定鍵による署名・公開workflowを追加。秘密鍵未設定なら公開せず、設定待ちを明示
+- 以前削除した制限付きJS／画面最大ボタンは復活させない。動画プレーヤーの全画面は維持
 
-## v0.9の変更
-
-- HTTPSの `t.co` をホスト名の完全一致で許可リストに追加
-- WebView内の `t.co` リンク遷移とリソース読み込みを許可。転送先には既存のURL許可判定を適用
-- URL貼り付け・共有からの起動では、既存の短縮URL展開処理を維持
-- 画面の許可条件・入力欄にも `t.co` を表示
-
-## v0.8の変更
-
-- 「制限付きJS」ボタンを削除。JavaScript / DOM StorageはONのまま維持
-- アプリ側の「画面最大」ボタンと独自の最大化処理を削除。動画プレーヤー側の全画面表示は維持
-- HTTPSの `x.com` とそのサブドメインを許可。URL全体の部分一致ではなく、ホスト名で判定
-- Xのページ・同一ドメインのリソース・HTTPSのXを生成元とするblob URLに対応
-- Androidのリンク候補に `x.com` / `*.x.com` を追加
-
-## 現在の仕様
-
-- Android Java / WebView 実装。起動先は `SafeActivity`
-- GitHub Actionsでdebug APKを正規ビルド
-- URL貼り付けから起動
-- Android共有メニューから `text/plain` を受け取り
-- HTTPSかつURL文字列に `gofile` または `twimg` を含むURL、またはホスト名が `x.com` / `*.x.com` / `t.co` のURLを許可
-- 貼り付け・共有で受け取った `t.co` はHTTPヘッダーのリダイレクトを追跡し、展開後URLが許可条件に合うときだけ開く
-- WebView内では `t.co` への遷移を許可し、転送先にも既存のURL許可判定を適用
-- Androidのリンク候補として `t.co`、`x.com` と主要な `twimg.com` 系ホストを登録
-- 表示検証用に `*.fun800.click` のサムネイル/動画系リソースを一時許可
-- JavaScriptはON。popup/window.open、自動ダウンロード、SSLエラーなどの遮断は維持
-- ログは内部Logcatのみへ出力
-- アプリ側では横画面を強制しない
-- フローティング誘導要素をCSS/JS注入で非表示
-- 許可条件に合わない外部遷移、外部リソースを遮断
-- SafeView化したアプリアイコンを設定
-- セッション終了時にCookie / WebStorage / Cacheを削除
-
-## 注意
-
-v0.2以降では、検証のためにGofile / twimgの許可条件を緩めています。v0.9でもこの既存条件は変更していません。
+## 閲覧の許可条件
 
 ```text
-許可: HTTPS かつ URL文字列に gofile または twimg を含むURL
-追加許可: HTTPS かつ ホスト名が x.com / *.x.com / t.co のURL
-追加リソース許可: *.fun800.click
-拒否: HTTP、または許可条件に合わないURL
+許可: HTTPSかつURL全体にgofileまたはtwimgを含む
+追加許可: HTTPSかつホスト名がx.com / *.x.com / t.co
+追加リソース許可: HTTPSのfun800.click / *.fun800.click
 ```
 
-Gofile / twimgの既存条件は `https://example.com/?q=gofile` のようなURLも通すため、最終的な安全設計ではありません。最終的には、検出された実ドメインを見て必要なものだけ個別許可する方式へ戻す想定です。
+Gofile／twimgは検証用の緩い文字列判定のままです。`https://example.com/?q=gofile`のようなURLも通るため、安全性を検証したドメイン一覧ではありません。X／t.coの追加条件はホスト名を解析し、パス・クエリーの文字列だけでは許可しません。
 
-X / t.coのホスト名による追加許可は `https://example.com/?q=t.co` や `https://t.co.example.com/` を許可しません。認証情報を含むURLや不正な形式のURLもこのホスト名判定では拒否します。ただし、既存のGofile / twimg条件に合うURLは引き続き許可されます。
+貼り付け・共有からのt.coは既存のHTTPヘッダー展開を使用します。WebView内のt.coへの遷移も許可します。許可対象外のナビゲーション／リソース、ポップアップ、ページからのダウンロード、HTTP混在、証明書エラーの遮断を維持します。WebViewコールバックによる制限であり、全通信を厳密に仲介するプロキシではありません。
 
-## Xから開く導線
+## 情報の扱い
 
-- Xの共有メニューから本アプリを選ぶ
-- `x.com` / `t.co` リンクを開く候補に本アプリが出る場合は選ぶ
-- `x.com` や `pbs.twimg.com` / `video.twimg.com` などのURLを直接貼り付けても開ける
-- アプリ内で開いたXのページから `t.co` リンクに遷移できる。転送先が許可対象外なら遮断する
+本アプリには、ログイン情報や閲覧内容を開発者サーバー・アクセス解析サービスに送信する処理はありません。ログインや閲覧に必要な通信はXなどの利用先と行います。ログイン情報を独自に収集する入力フォームは作らず、Xの公式ログインページを開きます。
 
-Android側やX側の挙動により、必ず本アプリが自動起動するわけではありません。
+Cookie・WebStorageは端末内で保持し、ホームの「ログイン・閲覧データを削除」でCookie・WebStorage・キャッシュを削除できます。Androidバックアップは無効です。WebView・OSの安全性確認等の通信はそれぞれの仕様に従います。
 
-## 制限
+更新確認・APK取得ではGitHubに接続します。更新処理は閲覧用WebViewと分離しており、WebViewのCookie・閲覧URL・ログイン情報を読み出しません。GitHubを閲覧の許可リストに追加することもありません。
 
-- Gofile / Xの公式アプリではありません。
-- 生のGofile系リンクや `x.com` / `t.co` リンクを必ずこのアプリで開けるわけではありません。Android側・X側・既定ブラウザ設定に左右されます。
-- AndroidのIntent Filterでは「URL文字列にgofile/twimgを含む場合だけ候補に出す」という指定はできません。任意URLは共有または貼り付けで検証してください。
-- JavaScriptをONにしているため、v0.1より安全側ではなく表示検証側に寄せています。
-- Xの実機表示・ログイン・動画再生・短縮リンク遷移は別途確認が必要です。許可していない外部ドメインに依存する機能は動作しない可能性があります。
-- 安全なダウンロード保存機能は未実装です。
-- 目的ファイル自体が安全であることは保証しません。
+## 配布と更新
 
-## ビルド
+Google PlayではなくGitHub ReleasesでAPKを直接配布します。アプリの更新は利用者が更新確認を押したときだけ始まり、更新内容確認 → APK取得 → サイズ／SHA-256／アプリID／バージョン／署名照合 → Androidの承認、の順に進みます。
 
-GitHub Actionsの `Android Debug APK` workflowで `app-debug.apk` を生成します。
+**初回の固定署名鍵の登録が必要です。手順は [docs/releasing.md](docs/releasing.md) を参照してください。** 設定前はrelease workflowが公開をスキップします。debug APKを正式な更新先として配布することはありません。
 
-手元でビルドする場合はAndroid SDKとGradleを用意し、以下を実行します。
+v0.9以前からの切り替えでは署名が異なり、初回だけ入れ直しが必要になる場合があります。以後は固定署名鍵を使い、端末内データを維持して上書き更新します。
 
-```bash
-gradle --no-daemon assembleDebug
+## ビルドとテスト
+
+Android Java／WebView、minSdk 23、targetSdk 35です。起動先はHomeActivity、閲覧はSafeActivityです。旧MainActivityは起動先ではありません。
+
+```sh
+python3 scripts/test_release_manifest.py
+gradle --no-daemon testDebugUnitTest lintDebug assembleDebug assembleRelease
 ```
 
-APK出力先:
+`Android Debug APK` workflowはテスト・lint・debugビルド・未署名releaseビルドを行います。debug版は別applicationIdの検証用です。未署名release APKはそのままインストールできません。`Android Release APK` workflowが固定鍵で署名・公開します。
 
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
+Xの実機表示・ログイン・動画再生・Cookie維持、Androidのインストール許可と更新フローは実機で別途確認してください。許可していない外部ドメインに依存するページ機能は動作しない場合があります。通常のダウンロード保存機能は未実装です。

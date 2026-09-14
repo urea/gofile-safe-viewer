@@ -1,52 +1,57 @@
 name: Android Debug APK
-
 on:
   push:
-    branches:
-      - main
-      - 'chatgpt/**'
+    branches: [main, 'chatgpt/**']
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
   actions: read
-
 jobs:
   build:
-    name: Build debug APK
+    name: Build and test APKs
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
-
       - name: Install Android platform
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
-
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+      - name: Test release metadata generator
+        run: python3 scripts/test_release_manifest.py
+      - name: Test, lint and build
+        run: gradle --no-daemon testDebugUnitTest lintDebug assembleDebug assembleRelease
+      - uses: actions/upload-artifact@v4
         with:
           name: GofileSafeViewer-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Stage unsigned release and public signing tool
+        run: |
+          mkdir -p build/owner-signing
+          cp app/build/outputs/apk/release/app-release-unsigned.apk build/owner-signing/
+          cp app/build/outputs/apk/release/output-metadata.json build/owner-signing/
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build/owner-signing/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GofileSafeViewer-owner-signing
+          path: build/owner-signing/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: GofileSafeViewer-test-results
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            app/build/test-results/

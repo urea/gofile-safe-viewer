@@ -1,0 +1,87 @@
+name: Android Release APK
+on:
+  push:
+    branches: [main, 'chatgpt/android-safe-viewer-v0.1']
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: safe-viewer-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.repository == 'urea/gofile-safe-viewer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check signing configuration
+        id: signing
+        env:
+          KEYSTORE: ${{ secrets.GSV_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.GSV_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.GSV_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.GSV_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "### Release not published" >> "$GITHUB_STEP_SUMMARY"
+            echo "Set the four GSV signing secrets using docs/releasing.md. No temporary key or debug signing fallback is used." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.signing.outputs.ready == 'true'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        if: steps.signing.outputs.ready == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        if: steps.signing.outputs.ready == 'true'
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.signing.outputs.ready == 'true'
+        with:
+          gradle-version: 8.10.2
+          cache-disabled: true
+      - name: Build with the fixed release key
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          KEYSTORE: ${{ secrets.GSV_KEYSTORE_BASE64 }}
+          GSV_KEYSTORE_PATH: ${{ runner.temp }}/gsv-release.jks
+          GSV_KEYSTORE_PASSWORD: ${{ secrets.GSV_KEYSTORE_PASSWORD }}
+          GSV_KEY_ALIAS: ${{ secrets.GSV_KEY_ALIAS }}
+          GSV_KEY_PASSWORD: ${{ secrets.GSV_KEY_PASSWORD }}
+        run: |
+          umask 077
+          trap 'rm -f "$GSV_KEYSTORE_PATH"' EXIT
+          printf '%s' "$KEYSTORE" | base64 --decode > "$GSV_KEYSTORE_PATH"
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          python3 scripts/test_release_manifest.py
+          gradle --no-daemon testReleaseUnitTest lintRelease assembleRelease
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk dist/GofileSafeViewer.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/GofileSafeViewer.apk > dist/signature.txt
+          python3 scripts/make_update_manifest.py --apk dist/GofileSafeViewer.apk --metadata app/build/outputs/apk/release/output-metadata.json --output dist/update.json
+      - name: Publish a new version without overwriting an existing release
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("dist/update.json"))["versionName"])')
+          tag="v$version"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "$tag" ]; then
+            echo "Tag and APK version differ" >&2; exit 1
+          fi
+          if gh release view "$tag" --json tagName >/dev/null 2>&1; then
+            echo "Release $tag already exists; no assets were overwritten." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh release create "$tag" dist/GofileSafeViewer.apk dist/update.json dist/signature.txt \
+            --target "$GITHUB_SHA" --title "Gofile Safe Viewer $tag" --notes-file docs/release-notes.md --latest
+      - name: Remove signing material
+        if: always()
+        run: rm -f "${{ runner.temp }}/gsv-release.jks"
