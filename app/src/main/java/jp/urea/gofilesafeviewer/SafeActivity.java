@@ -3,7 +3,12 @@ package jp.urea.gofilesafeviewer;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.InsetDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
@@ -11,9 +16,11 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
@@ -46,11 +53,11 @@ public class SafeActivity extends Activity {
     private EditText urlInput;
     private TextView statusView;
     private WebView webView;
-    private int normalSystemUiVisibility;
     private View customFullScreenView;
     private WebChromeClient.CustomViewCallback customFullScreenCallback;
     private volatile boolean destroyed;
     private int navigationGeneration;
+    private boolean pageHadIssue;
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved); buildUi(); configureWebView();
@@ -62,6 +69,14 @@ public class SafeActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle out) {
         if (webView.getUrl() != null && isAllowedUrl(Uri.parse(webView.getUrl()))) out.putString("url", webView.getUrl());
         super.onSaveInstanceState(out);
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        if (customFullScreenView == null) UiChrome.showSystemBars(this);
+    }
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && customFullScreenView == null) UiChrome.showSystemBars(this);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -92,29 +107,85 @@ public class SafeActivity extends Activity {
             @Override public void onShowCustomView(View view, int orientation, CustomViewCallback callback) { showCustomFullScreen(view, callback); }
             @Override public void onHideCustomView() { hideCustomFullScreen(); }
         });
-        webView.setDownloadListener((url, userAgent, contentDisposition, mime, size) -> setStatus("ページからのダウンロードを遮断しました。アプリの更新はホームから行ってください。"));
+        webView.setDownloadListener((url, userAgent, contentDisposition, mime, size) -> {
+            pageHadIssue = true;
+            setStatus("ページからのダウンロードを遮断しました。アプリの更新はホームから行ってください。");
+        });
         // Never add a JavaScript interface: web pages must not access native update controls.
     }
 
     private void buildUi() {
-        root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setFitsSystemWindows(true);
-        int padding = Math.round(10 * getResources().getDisplayMetrics().density);
-        root.setPadding(padding, padding, padding, padding);
+        root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.WHITE);
+        root.setFocusableInTouchMode(true);
         LinearLayout heading = new LinearLayout(this);
-        TextView title = new TextView(this); title.setText("Gofile Safe Viewer"); title.setTextSize(18);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        heading.setPadding(dp(14), 0, dp(8), 0);
+        TextView title = new TextView(this);
+        title.setText("Gofile Safe Viewer"); title.setTextSize(16);
+        title.setTextColor(Color.rgb(35, 43, 51)); title.setTypeface(null, Typeface.BOLD);
+        title.setSingleLine(true); title.setEllipsize(TextUtils.TruncateAt.END);
         heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        Button home = new Button(this); home.setText("ホーム"); home.setOnClickListener(v -> goHome());
-        heading.addView(home, new LinearLayout.LayoutParams(-2, -2)); root.addView(heading);
+        Button home = toolbarButton("ホーム", false, this::goHome);
+        heading.addView(home, new LinearLayout.LayoutParams(dp(64), dp(48)));
+        root.addView(heading, new LinearLayout.LayoutParams(-1, dp(48)));
+
         LinearLayout controls = new LinearLayout(this);
-        urlInput = new EditText(this); urlInput.setSingleLine(true); urlInput.setTextSize(14);
-        urlInput.setHint("gofile / twimg / x.com / t.co のHTTPS URL");
+        controls.setGravity(Gravity.CENTER_VERTICAL);
+        controls.setPadding(dp(12), 0, dp(8), dp(4));
+        urlInput = new EditText(this);
+        urlInput.setSingleLine(true); urlInput.setTextSize(14);
+        urlInput.setTextColor(Color.rgb(35, 43, 51));
+        urlInput.setHint("HTTPSのURLを入力");
+        urlInput.setHintTextColor(Color.rgb(95, 105, 115));
         urlInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        controls.addView(urlInput, new LinearLayout.LayoutParams(0, -2, 1));
-        Button open = new Button(this); open.setText("開く"); open.setOnClickListener(v -> openRequestedUrl(urlInput.getText().toString()));
-        controls.addView(open, new LinearLayout.LayoutParams(-2, -2)); root.addView(controls);
-        statusView = new TextView(this); statusView.setTextSize(12); statusView.setMaxLines(2); statusView.setEllipsize(TextUtils.TruncateAt.END); root.addView(statusView);
-        webView = new WebView(this); root.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
-        setContentView(root);
+        urlInput.setImeOptions(EditorInfo.IME_ACTION_GO);
+        urlInput.setBackground(new InsetDrawable(rounded(Color.rgb(243, 245, 247)), 0, dp(4), 0, dp(4)));
+        urlInput.setPadding(dp(12), 0, dp(12), 0);
+        urlInput.setOnEditorActionListener((view, action, event) -> {
+            if (action == EditorInfo.IME_ACTION_GO) { submitUrl(); return true; }
+            return false;
+        });
+        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(0, dp(48), 1);
+        inputParams.setMarginEnd(dp(8));
+        controls.addView(urlInput, inputParams);
+        controls.addView(toolbarButton("開く", true, this::submitUrl), new LinearLayout.LayoutParams(dp(64), dp(48)));
+        root.addView(controls, new LinearLayout.LayoutParams(-1, -2));
+
+        statusView = new TextView(this);
+        statusView.setTextSize(12); statusView.setTextColor(Color.rgb(82, 93, 103));
+        statusView.setMaxLines(2); statusView.setEllipsize(TextUtils.TruncateAt.END);
+        statusView.setPadding(dp(14), 0, dp(14), dp(4));
+        statusView.setVisibility(View.GONE); root.addView(statusView);
+        View divider = new View(this); divider.setBackgroundColor(Color.rgb(230, 233, 236));
+        root.addView(divider, new LinearLayout.LayoutParams(-1, 1));
+        webView = new WebView(this);
+        root.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
+        UiChrome.setContentView(this, root);
+    }
+    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    private GradientDrawable rounded(int color) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color); drawable.setCornerRadius(dp(8)); return drawable;
+    }
+    private Button toolbarButton(String label, boolean filled, Runnable action) {
+        Button button = new Button(this, null, android.R.attr.borderlessButtonStyle);
+        button.setText(label); button.setTextSize(13); button.setAllCaps(false);
+        button.setTextColor(Color.rgb(35, 43, 51)); button.setIncludeFontPadding(false);
+        button.setMinWidth(0); button.setMinimumWidth(0); button.setMinHeight(0); button.setMinimumHeight(0);
+        button.setPadding(dp(8), 0, dp(8), 0); button.setStateListAnimator(null);
+        RippleDrawable ripple = new RippleDrawable(ColorStateList.valueOf(0x1f000000),
+                rounded(filled ? Color.rgb(235, 239, 242) : Color.TRANSPARENT), rounded(Color.WHITE));
+        button.setBackground(new InsetDrawable(ripple, 0, dp(4), 0, dp(4)));
+        button.setOnClickListener(v -> action.run()); return button;
+    }
+    private void submitUrl() {
+        String value = urlInput.getText().toString();
+        urlInput.clearFocus(); root.requestFocus();
+        InputMethodManager keyboard = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (keyboard != null) keyboard.hideSoftInputFromWindow(urlInput.getWindowToken(), 0);
+        openRequestedUrl(value);
     }
     private void goHome() {
         hideCustomFullScreen();
@@ -190,7 +261,7 @@ public class SafeActivity extends Activity {
         }
         return ResolveResult.error("転送回数の上限または画面終了により中止しました。");
     }
-    private void loadSafe(String url) { setStatus("読み込み中: " + url); webView.loadUrl(url); }
+    private void loadSafe(String url) { pageHadIssue = false; setStatus("読み込み中…"); webView.loadUrl(url); }
     private boolean isAllowedUrl(Uri uri) {
         return uri != null && "https".equalsIgnoreCase(uri.getScheme())
                 && (containsAllowedToken(uri.toString()) || isAllowedNamedHostUrl(uri.toString()));
@@ -242,24 +313,24 @@ public class SafeActivity extends Activity {
     }
     private void showCustomFullScreen(View view, WebChromeClient.CustomViewCallback callback) {
         if (customFullScreenView != null) { if (callback != null) callback.onCustomViewHidden(); return; }
-        normalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
         customFullScreenView = view; customFullScreenCallback = callback; view.setBackgroundColor(Color.BLACK);
         root.setVisibility(View.GONE);
         ((ViewGroup) getWindow().getDecorView()).addView(view, new ViewGroup.LayoutParams(-1, -1));
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        UiChrome.enterPlayerFullScreen(this);
     }
     private void hideCustomFullScreen() {
         if (customFullScreenView == null) return;
         ViewGroup parent = (ViewGroup) customFullScreenView.getParent(); if (parent != null) parent.removeView(customFullScreenView);
         customFullScreenView = null; root.setVisibility(View.VISIBLE);
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        getWindow().getDecorView().setSystemUiVisibility(normalSystemUiVisibility);
+        UiChrome.showSystemBars(this);
         WebChromeClient.CustomViewCallback callback = customFullScreenCallback; customFullScreenCallback = null;
         if (callback != null) callback.onCustomViewHidden();
     }
-    private void setStatus(String message) { if (!destroyed) statusView.setText(message); }
+    private void setStatus(String message) {
+        if (destroyed) return;
+        statusView.setText(message);
+        statusView.setVisibility(TextUtils.isEmpty(message) ? View.GONE : View.VISIBLE);
+    }
     @Override public void onBackPressed() {
         if (customFullScreenView != null) { hideCustomFullScreen(); return; }
         if (webView.canGoBack()) { webView.goBack(); return; }
@@ -275,11 +346,14 @@ public class SafeActivity extends Activity {
         CookieManager.getInstance().flush(); super.onDestroy();
     }
     private final class SafeClient extends WebViewClient {
+        @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
+            pageHadIssue = false; setStatus("読み込み中…");
+        }
         @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return block(request.getUrl()); }
         @Override public boolean shouldOverrideUrlLoading(WebView view, String url) { return block(Uri.parse(url)); }
         private boolean block(Uri uri) {
             if (isAllowedUrl(uri)) return false;
-            setStatus("許可対象外への遷移を遮断しました。"); return true;
+            pageHadIssue = true; setStatus("許可対象外への遷移を遮断しました。"); return true;
         }
         @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
             if (isAllowedResourceUrl(request.getUrl())) return null;
@@ -287,13 +361,18 @@ public class SafeActivity extends Activity {
         }
         @Override public void onPageFinished(WebView view, String url) {
             cleanupPage(); CookieManager.getInstance().flush();
-            if (isAllowedUrl(Uri.parse(url))) { urlInput.setText(url); setStatus("表示中: " + url); }
+            if (isAllowedUrl(Uri.parse(url))) {
+                if (!urlInput.hasFocus()) urlInput.setText(url);
+                if (!pageHadIssue) setStatus("");
+            }
         }
         @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-            if (request != null && request.isForMainFrame()) setStatus("ページを読み込めませんでした。通信状態や許可条件を確認してください。");
+            if (request != null && request.isForMainFrame()) {
+                pageHadIssue = true; setStatus("ページを読み込めませんでした。通信状態や許可条件を確認してください。");
+            }
         }
         @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-            handler.cancel(); setStatus("証明書エラーのため読み込みを中止しました。");
+            handler.cancel(); pageHadIssue = true; setStatus("証明書エラーのため読み込みを中止しました。");
         }
     }
     private static final class ResolveResult {

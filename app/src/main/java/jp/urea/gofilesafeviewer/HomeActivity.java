@@ -44,7 +44,13 @@ public final class HomeActivity extends Activity {
         out.putBoolean("autoInstall", autoInstall);
         super.onSaveInstanceState(out);
     }
-    @Override protected void onResume() { super.onResume(); resumed = true; renderUpdate(); }
+    @Override protected void onResume() {
+        super.onResume(); UiChrome.showSystemBars(this); resumed = true; renderUpdate();
+    }
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) UiChrome.showSystemBars(this);
+    }
     @Override protected void onPause() { resumed = false; super.onPause(); }
     @Override protected void onDestroy() {
         updates.detach();
@@ -54,7 +60,7 @@ public final class HomeActivity extends Activity {
 
     private void buildHome() {
         ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true); scroll.setFitsSystemWindows(true);
+        scroll.setFillViewport(true);
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setPadding(dp(18), dp(12), dp(18), dp(20));
@@ -65,10 +71,9 @@ public final class HomeActivity extends Activity {
         page.addView(text("XやGofile系リンクを、許可対象外への遷移などを制限しながら閲覧するアプリです。ファイルやサイトの安全性を保証するものではありません。", 14));
 
         section(page, "使い始める");
-        page.addView(text("Xへのログインを推奨します。公式のx.comでログインし、そのまま投稿やリンク先を閲覧できます。ログインは必須ではありません。", 14));
+        page.addView(text("「Xを開く」から、必要に応じてXの画面内でログインしてください。ログインを推奨しますが、必須ではありません。ログイン状態は次回も保持します。", 14));
         LinearLayout xActions = row(page);
         button(xActions, "Xを開く", () -> open("https://x.com/home"));
-        button(xActions, "Xにログイン", () -> open("https://x.com/i/flow/login"));
         EditText input = new EditText(this);
         input.setSingleLine(true); input.setTextSize(14);
         input.setHint("URLを貼り付け（共有からも開けます）");
@@ -121,7 +126,7 @@ public final class HomeActivity extends Activity {
                     .setPositiveButton("取得して更新", (dialog, which) -> { autoInstall = true; updates.download(); }).show();
         });
         page.addView(text("自動更新は行いません。取得したAPKを検証し、Androidの確認画面で承認してから更新します。通常の上書き更新では端末内の設定・ログイン状態を保持します。", 13));
-        setContentView(scroll);
+        UiChrome.setContentView(this, scroll);
     }
 
     private void renderUpdate() {

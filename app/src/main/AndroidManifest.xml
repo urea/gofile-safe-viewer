@@ -5,7 +5,7 @@
     <application android:allowBackup="false"
         android:icon="@drawable/gofile_safe_icon" android:roundIcon="@drawable/gofile_safe_icon"
         android:label="@string/app_name" android:networkSecurityConfig="@xml/network_security_config"
-        android:supportsRtl="true" android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:supportsRtl="true" android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <activity android:name=".HomeActivity" android:exported="true">
             <intent-filter>
