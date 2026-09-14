@@ -34,6 +34,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
@@ -52,6 +53,7 @@ public class SafeActivity extends Activity {
     private LinearLayout root;
     private EditText urlInput;
     private TextView statusView;
+    private Button bookmarkButton;
     private WebView webView;
     private View customFullScreenView;
     private WebChromeClient.CustomViewCallback customFullScreenCallback;
@@ -73,6 +75,7 @@ public class SafeActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (customFullScreenView == null) UiChrome.showSystemBars(this);
+        updateBookmarkButton();
     }
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
@@ -127,6 +130,9 @@ public class SafeActivity extends Activity {
         title.setTextColor(Color.rgb(35, 43, 51)); title.setTypeface(null, Typeface.BOLD);
         title.setSingleLine(true); title.setEllipsize(TextUtils.TruncateAt.END);
         heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        bookmarkButton = toolbarButton("☆保存", false, this::toggleBookmark);
+        bookmarkButton.setEnabled(false);
+        heading.addView(bookmarkButton, new LinearLayout.LayoutParams(dp(72), dp(48)));
         Button home = toolbarButton("ホーム", false, this::goHome);
         heading.addView(home, new LinearLayout.LayoutParams(dp(64), dp(48)));
         root.addView(heading, new LinearLayout.LayoutParams(-1, dp(48)));
@@ -191,6 +197,31 @@ public class SafeActivity extends Activity {
         hideCustomFullScreen();
         startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
         finish();
+    }
+    private void toggleBookmark() {
+        String url = currentBookmarkUrl();
+        if (url == null) return;
+        BookmarkStore bookmarks = new BookmarkStore(this);
+        if (bookmarks.contains(url)) {
+            bookmarks.remove(url);
+            Toast.makeText(this, "ブックマークを削除しました。", Toast.LENGTH_SHORT).show();
+        } else {
+            bookmarks.add(url);
+            Toast.makeText(this, "ブックマークに保存しました。", Toast.LENGTH_SHORT).show();
+        }
+        updateBookmarkButton();
+    }
+    private String currentBookmarkUrl() {
+        if (webView == null) return null;
+        String url = webView.getUrl();
+        return url != null && isAllowedUrl(Uri.parse(url)) ? url : null;
+    }
+    private void updateBookmarkButton() {
+        if (bookmarkButton == null) return;
+        String url = currentBookmarkUrl();
+        boolean available = url != null;
+        bookmarkButton.setEnabled(available);
+        bookmarkButton.setText(available && new BookmarkStore(this).contains(url) ? "★保存済" : "☆保存");
     }
     private String urlFromIntent() {
         Intent intent = getIntent(); if (intent == null) return null;
@@ -347,7 +378,7 @@ public class SafeActivity extends Activity {
     }
     private final class SafeClient extends WebViewClient {
         @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
-            pageHadIssue = false; setStatus("読み込み中…");
+            pageHadIssue = false; setStatus("読み込み中…"); updateBookmarkButton();
         }
         @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return block(request.getUrl()); }
         @Override public boolean shouldOverrideUrlLoading(WebView view, String url) { return block(Uri.parse(url)); }
@@ -365,6 +396,7 @@ public class SafeActivity extends Activity {
                 if (!urlInput.hasFocus()) urlInput.setText(url);
                 if (!pageHadIssue) setStatus("");
             }
+            updateBookmarkButton();
         }
         @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
             if (request != null && request.isForMainFrame()) {

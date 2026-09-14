@@ -74,6 +74,7 @@ public final class HomeActivity extends Activity {
         page.addView(text("「Xを開く」から、必要に応じてXの画面内でログインしてください。ログインを推奨しますが、必須ではありません。ログイン状態は次回も保持します。", 14));
         LinearLayout xActions = row(page);
         button(xActions, "Xを開く", () -> open("https://x.com/home"));
+        button(xActions, "ブックマーク", () -> startActivity(new Intent(this, BookmarkListActivity.class)));
         EditText input = new EditText(this);
         input.setSingleLine(true); input.setTextSize(14);
         input.setHint("URLを貼り付け（共有からも開けます）");
@@ -91,11 +92,11 @@ public final class HomeActivity extends Activity {
 
         section(page, "ログイン情報・プライバシー");
         page.addView(text("本アプリはログイン情報や閲覧内容を、開発者のサーバーやアクセス解析サービスへ送信しません。ログイン・閲覧に必要な通信はXなどの利用先へ、更新確認・APK取得の通信はGitHubへ行います。", 14));
-        page.addView(text("ログイン画面の入力を独自に収集する処理はありません。ログイン状態を保持するCookie等は端末内に保存し、終了時には削除しません。WebView・OSの安全性確認等の通信は各提供元の仕様に従います。", 13));
+        page.addView(text("ログイン画面の入力を独自に収集する処理はありません。ログイン状態を保持するCookie等とブックマークは端末内に保存します。ブックマークは下のログイン・閲覧データ削除では消えません。WebView・OSの安全性確認等の通信は各提供元の仕様に従います。", 13));
         Button clear = new Button(this); clear.setText("ログイン・閲覧データを削除");
         clear.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("保存データを削除しますか？")
-                .setMessage("Xを含む閲覧先からログアウトします。Cookie・WebStorage・キャッシュを削除します。")
+                .setMessage("Xを含む閲覧先からログアウトします。Cookie・WebStorage・キャッシュを削除します。ブックマークは削除しません。")
                 .setNegativeButton("キャンセル", null)
                 .setPositiveButton("削除する", (dialog, which) -> {
                     clear.setEnabled(false);
