@@ -265,7 +265,7 @@ public class SafeActivity extends Activity {
                 if (destroyed || generation != navigationGeneration) return;
                 if (result.error != null) { setStatus("短縮URLの展開に失敗しました: " + result.error); return; }
                 if (isAllowedUrl(Uri.parse(result.finalUrl))) { urlInput.setText(result.finalUrl); loadSafe(result.finalUrl); }
-                else setStatus("展開後URLが許可対象外です。");
+                else setStatus("許可対象外への遷移を遮断しました。");
             });
         }, "safe-url-resolver").start();
     }
@@ -325,6 +325,9 @@ public class SafeActivity extends Activity {
         if (host == null) return false;
         String lower = host.toLowerCase(Locale.ROOT); return lower.equals("t.co") || lower.endsWith(".t.co");
     }
+    private boolean isResolverUrl(Uri uri) {
+        return uri != null && "https".equalsIgnoreCase(uri.getScheme()) && isResolverHost(uri.getHost());
+    }
     private void cleanupPage() {
         if (destroyed) return;
         injectCleanupScript();
@@ -380,9 +383,17 @@ public class SafeActivity extends Activity {
         @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
             pageHadIssue = false; setStatus("読み込み中…"); updateBookmarkButton();
         }
-        @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return block(request.getUrl()); }
-        @Override public boolean shouldOverrideUrlLoading(WebView view, String url) { return block(Uri.parse(url)); }
-        private boolean block(Uri uri) {
+        @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+            if (!request.isForMainFrame()) return !isAllowedUrl(request.getUrl());
+            return handleTopLevelNavigation(request.getUrl());
+        }
+        @Override public boolean shouldOverrideUrlLoading(WebView view, String url) { return handleTopLevelNavigation(Uri.parse(url)); }
+        private boolean handleTopLevelNavigation(Uri uri) {
+            if (isResolverUrl(uri)) {
+                openRequestedUrl(uri.toString());
+                return true;
+            }
+            navigationGeneration++;
             if (isAllowedUrl(uri)) return false;
             pageHadIssue = true; setStatus("許可対象外への遷移を遮断しました。"); return true;
         }
